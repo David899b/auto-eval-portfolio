@@ -119,7 +119,7 @@ streamlit run dashboard/app.py
 | **Track A — Fractional EDI** | $12k/mo (20h/wk) | Yo hago la evaluación: golden sets, harness, gates, dashboard |
 | **Track B — Platform Deploy** | $50k (6-8 wks) + $8k/mo | Plataforma deployada en tu infra, agents corriendo, handoff a 1 persona |
 
-**Zero meetings by design.** Entregas via PR + dashboard + runbook. Sync = 0-1/mes.
+**Async-first, minimal sync.** Entregas via PR + dashboard + runbook. Async-first, sync only when needed.
 
 ---
 
