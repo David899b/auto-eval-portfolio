@@ -1,14 +1,12 @@
 [project]
-name = "ai-eval-harness"
+name = "auto-eval-platform"
 version = "0.1.0"
-description = "Production-grade LLM evaluation harness: golden sets, CI/CD gates, drift monitoring, compliance"
+description = "Auto-evaluation platform for LLM teams: agents generate golden sets, red-team nightly, synthesize gates, detect drift. Self-serve, zero-meeting."
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
-authors = [
-    {name = "David Bautista", email = "david899@example.com"},
-]
-keywords = ["llm", "evaluation", "golden-set", "prompt-engineering", "mlops", "compliance"]
+authors = [{name = "David Bautista", email = "david899b@gmail.com"}]
+keywords = ["llm", "evaluation", "golden-set", "auto-eval", "agents", "mlops", "compliance", "red-teaming"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -35,20 +33,20 @@ dependencies = [
     "evidently>=0.4",
     "streamlit>=1.35",
     "plotly>=5.20",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "cookiecutter>=2.3",
 ]
 
 [project.optional-dependencies]
-dev = [
-    "ruff>=0.5",
-    "mypy>=1.10",
-    "pre-commit>=3.7",
-    "jupyter>=1.0",
-    "ipykernel>=6.29",
-]
+dev = ["ruff>=0.5", "mypy>=1.10", "pre-commit>=3.7", "jupyter>=1.0", "ipykernel>=6.29"]
 vllm = ["vllm>=0.5"]
 openai = ["openai>=1.30"]
 anthropic = ["anthropic>=0.25"]
 google = ["google-generativeai>=0.7"]
+
+[project.scripts]
+auto-eval = "auto_eval.cli:app"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
@@ -57,12 +55,7 @@ python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v --tb=short --strict-markers --cov=src --cov-report=term-missing --cov-fail-under=80"
-markers = [
-    "slow: marks tests as slow",
-    "integration: marks tests as integration tests",
-    "golden: marks tests that use golden set",
-    "regression: marks regression gate tests",
-]
+markers = ["slow", "integration", "golden", "regression", "agent"]
 
 [tool.ruff]
 line-length = 100
@@ -81,10 +74,6 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 strict = true
-
-[tool.coverage.run]
-source = ["src"]
-omit = ["tests/*", "scripts/*", "notebooks/*"]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]

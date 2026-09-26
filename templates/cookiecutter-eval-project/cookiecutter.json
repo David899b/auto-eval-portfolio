@@ -1,0 +1,12 @@
+{
+    "project_name": "My Eval Project",
+    "project_slug": "my-eval-project",
+    "use_case": "classification",
+    "model_provider": "vllm",
+    "model_name": "Qwen2.5-7B",
+    "deployment_target": "kubernetes",
+    "include_red_teaming": "y",
+    "include_drift_monitoring": "y",
+    "include_compliance": "y",
+    "compliance_regulations": "ley_25_326,gdpr"
+}
