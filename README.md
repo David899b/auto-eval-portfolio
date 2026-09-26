@@ -1,3 +1,10 @@
+![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)
+![Agents](https://img.shields.io/badge/Agents-5-orange)
+![API](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi)
+![Dashboard](https://img.shields.io/badge/Dashboard-Streamlit-FF4B4B?logo=streamlit)
+
 # auto-eval-platform
 
 **Self-serve evaluation infrastructure for LLM teams. Agents do the work. You ship.**
