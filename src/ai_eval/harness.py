@@ -360,8 +360,16 @@ class ModelAdapter(ABC):
 
     @abstractmethod
     async def predict(self, input_data: dict, schema: type[T]) -> tuple[T, dict]:
-        """Return (prediction, metadata{latency_ms, cost_usd, tokens})."""
-        pass
+        """Return ``(prediction, metadata)``.
+
+        ``metadata`` is stored verbatim on the result, and ``cost_usd`` and
+        ``tokens`` are read from it. ``latency_ms`` is **not**: the harness times
+        the call itself with :func:`time.perf_counter` and uses that, because
+        for a real provider the wall clock around the request is the number that
+        matters and a self-reported figure is exactly the thing an adapter would
+        get wrong. A ``latency_ms`` key in metadata is kept for debugging but
+        does not feed the latency metric.
+        """
 
     @abstractmethod
     def get_model_id(self) -> str:
@@ -519,7 +527,9 @@ class EvaluationHarness:
         derivations = [
             0.0 if p.verdict == Verdict.PASS else 1.0 for p in predictions
         ]
-        metrics[MetricName.DERIVATION_RATE] = self._bootstrap_ci(derivations)
+        metrics[MetricName.DERIVATION_RATE] = self._bootstrap_ci(
+            derivations, direction="max"
+        )
 
         # Latency P95 — bootstrap the per-item latencies, not the aggregate.
         # Bootstrapping a single pre-aggregated number has no sampling

@@ -23,6 +23,7 @@ SUITES = [
     ("core/harness", "tests/test_harness.py"),
     ("core/cli", "tests/test_cli.py"),
     ("core/api", "tests/test_api.py"),
+    ("dashboard", "tests/test_dashboard.py"),
     ("projects/arena", "projects/arena/tests/test_arena.py"),
     ("projects/redteam-dx", "projects/redteam-dx/tests/test_redteam_dx.py"),
     ("projects/eval-watch", "projects/eval-watch/tests/test_eval_watch.py"),

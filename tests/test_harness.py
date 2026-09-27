@@ -153,7 +153,15 @@ def test_scenarios_are_ordered_worst_case_first():
     the optimistic tail of a latency interval to PESSIMISTIC and report a
     regression as an improvement.
     """
-    higher_is_worse = {MetricName.LATENCY_P95_MS, MetricName.COST_PER_1K_TOKENS}
+    # Every metric where a *higher* value is the bad outcome. Derivation rate
+    # belongs here too: it counts predictions that failed schema validation, so
+    # more derivations is worse. It was briefly missing from this set, which is
+    # how its pessimistic scenario ended up as the best case.
+    higher_is_worse = {
+        MetricName.LATENCY_P95_MS,
+        MetricName.COST_PER_1K_TOKENS,
+        MetricName.DERIVATION_RATE,
+    }
     with tempfile.TemporaryDirectory() as tmp:
         h = _harness(tmp, _StaticAdapter())
         report = asyncio.run(h.evaluate())
