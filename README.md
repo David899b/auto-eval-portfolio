@@ -1,6 +1,6 @@
 ![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Status](https://img.shields.io/badge/Status-Production%20Ready-brightgreen)
+![Status](https://img.shields.io/badge/Status-Project%20Showcase-262730)
 ![Agents](https://img.shields.io/badge/Agents-5-orange)
 ![API](https://img.shields.io/badge/API-FastAPI-009688?logo=fastapi)
 ![Dashboard](https://img.shields.io/badge/Dashboard-Streamlit-FF4B4B?logo=streamlit)
@@ -9,9 +9,11 @@
 
 **Self-serve evaluation infrastructure for LLM teams. Agents do the work. You ship.**
 
+> Project showcase. Demo/orientation material — not a maintained product.
+
 ---
 
-## 🎯 The Problem
+## The Problem
 
 You're shipping LLM features. Evaluation is a bottleneck:
 - Golden sets rot (no versioning, no kappa, no refresh)
@@ -23,23 +25,45 @@ You're shipping LLM features. Evaluation is a bottleneck:
 
 ---
 
-## 🤖 The Solution: Agent-Native Evaluation Platform
+## The Concept: Agent-Native Evaluation Platform
 
-`auto-eval-platform` deploys **5 agents** that run continuously:
+`auto-eval-platform` is an architecture sketch for **5 agents** that run continuously:
 
-| Agent | What It Does | Frequency |
-|-------|-------------|-----------|
-| 🎯 **Golden Set Agent** | Genera, curra, versiona, refresca golden sets (kappa ≥ 0.8, SHA-256 freeze) | On-demand + drift-triggered |
-| 🔴 **Red Team Agent** | Prompt injection, jailbreak, PII leakage, hallucination, schema violation | Nightly |
-| 🎯 **Gate Synthesis Agent** | Bootstrap CI → 3-scenario gates (pessimistic/base/optimistic) + cost-sensitive thresholds | On every model change |
-| 📈 **Drift Agent** | PSI/KL en embeddings → alertas + auto-retraining triggers | Hourly / daily |
-| ⚖️ **Compliance Agent** | Ingesta DPAs/regulaciones → test suites ejecutables + audit trails | On regulation change |
-
-**Deploy once. Teams self-serve via API. You never touch eval again.**
+| Agent | Purpose | Frequency |
+|-------|--------|-----------|
+| **Golden Set Agent** | Generate/curate/version/refresh golden sets (kappa ≥ 0.8, SHA-256 freeze) | On-demand + drift-triggered |
+| **Red Team Agent** | Prompt injection, jailbreak, PII leakage, hallucination, schema violation | Nightly |
+| **Gate Synthesis Agent** | Bootstrap CI → 3-scenario gates (pessimistic/base/optimistic) + cost-sensitive thresholds | On every model change |
+| **Drift Agent** | PSI/KL on embeddings → alerts + retraining triggers | Hourly / daily |
+| **Compliance Agent** | Regulations/DPAs → executable test suites + audit trails | On regulation change |
 
 ---
 
-## 🚀 Quick Start
+## Terminology
+
+- **EDI (Especialista en Datos e IA):** role model where the evaluator delivers *model + evidence + frozen test*; domain experts validate against ground truth.
+- **3-scenario reporting:** every metric reported as pessimistic / base / optimistic with bootstrap confidence intervals — never a single number.
+- **Frozen golden set:** immutable, versioned (SHA-256), kappa ≥ 0.8, drift-triggered refresh.
+
+---
+
+## Demo Projects
+
+Small, self-contained, zero-dependency experiments that explore the ideas behind
+the platform — each runnable offline. Each project is documented in
+English (`README.md`) and Spanish (`README.es.md`):
+
+| Project | Question it explores | Run |
+|---------|---------------------|-----|
+| [`projects/arena`](projects/arena) | How do different models rank head-to-head (Bradley–Terry + bootstrap CI)? | `python projects/arena/arena/demo.py` |
+| [`projects/redteam-dx`](projects/redteam-dx) | Can red-teaming be declarative, repeatable and CI-gated (garak/PyRIT-style)? | `python projects/redteam-dx/redteam_dx/redteam_dx.py` |
+| [`projects/eval-watch`](projects/eval-watch) | Does PSI/KL drift alert before the customer does, with 3-scenario gates? | `python projects/eval-watch/eval_watch/eval_watch.py` |
+
+Each project has its own `README.md` (method + why it matters) and `tests/`.
+
+---
+
+## Quick Start
 
 ```bash
 # 1. Create new eval project (2 minutes)
@@ -53,13 +77,13 @@ cp configs/config.yaml.example configs/config.yaml
 # 3. Run evaluation
 python -m auto_eval.cli evaluate --split test
 
-# 4. Dashboard
+# 4. Dashboard (demo app)
 streamlit run dashboard/app.py
 ```
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -75,40 +99,40 @@ streamlit run dashboard/app.py
 │  Golden Sets (Versioned, Frozen, SHA-256, Kappa ≥ 0.8)      │
 │  Harness (Instructor + Judge + Bootstrap CI + Gates)        │
 │  CI/CD (GitHub Actions / GitLab CI)                         │
-│  Dashboard (Streamlit) + Alertas (Slack/Email/PagerDuty)    │
+│  Dashboard (Streamlit) + Alerts (Slack/Email/PagerDuty)     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🎯 Gates That Mean Something
+## Gates That Mean Something
 
 | Metric | Pessimistic | Base | Optimistic | Gate Type |
 |--------|-------------|------|------------|-----------|
-| Classification Accuracy | 0.92 | 0.95 | 0.97 | MIN |
-| Extraction F1 | 0.89 | 0.93 | 0.96 | MIN |
+| Accuracy | 0.92 | 0.95 | 0.97 | MIN |
+| F1 | 0.89 | 0.93 | 0.96 | MIN |
 | Derivation Rate | 0.12 | 0.08 | 0.05 | MAX |
 | Latency P95 (ms) | 1800 | 1200 | 800 | MAX |
 | Cost per 1k tokens | $0.045 | $0.032 | $0.025 | MAX |
 
-**Pessimistic must pass for regulated domains.** No "it works on my machine."
+*Pessimistic must pass for regulated domains.*
 
 ---
 
-## ⚖️ Compliance Built-In
+## Compliance Concept
 
 | Regulation | Test Cases | Audit Trail |
 |------------|------------|-------------|
 | Ley 25.326 (Argentina) | 12 | ✅ |
 | GDPR (EU) | 18 | ✅ |
-| EU AI Act (Prep) | 22 | ✅ |
-| Custom DPA/SCC | Auto-generated | ✅ |
+| EU AI Act (prep) | 22 | ✅ |
+| Custom DPA/SCC | auto-generated | ✅ |
 
-**Compliance Agent** ingiere tu DPA/regulación → genera test suite pytest ejecutable + audit trail inmutable.
+Compliance pipeline: regulation → atomic obligations → executable pytest suite → SHA-256 audit trail.
 
 ---
 
-## 📦 Deploy Options
+## Deploy Options
 
 | Target | Command |
 |--------|---------|
@@ -119,35 +143,9 @@ streamlit run dashboard/app.py
 
 ---
 
-## 💰 Business Model
+## License
 
-| Track | Price | What You Get |
-|-------|-------|--------------|
-| **Track A — Fractional EDI** | $12k/mo (20h/wk) | Yo hago la evaluación: golden sets, harness, gates, dashboard |
-| **Track B — Platform Deploy** | $50k (6-8 wks) + $8k/mo | Plataforma deployada en tu infra, agents corriendo, handoff a 1 persona |
-
-**Async-first, minimal sync.** Entregas via PR + dashboard + runbook. Async-first, sync only when needed.
-
----
-
-## 📊 Proof
-
-| Project | Metrics | Compliance |
-|---------|---------|------------|
-| **Production Document-AI** | Field F1 0.971, ANLS 0.984, Schema OK 100% | Policy verified, DPA aligned, Ley 25.326 |
-| **Public-Utility MVP** | 4-week build, kappa≥0.8, self-hosted Qwen | Ley 25.326 ready |
-
----
-
-## 🛠️ Stack
-
-`Python 3.11+` • `FastAPI` • `Instructor/Pydantic` • `vLLM/Ollama` • `MLflow` • `Evidently` • `pytest` • `GitHub Actions` • `Docker` • `Kubernetes` • `Streamlit` • `Plotly` • `Cookiecutter`
-
----
-
-## 📄 License
-
-MIT — Use it, extend it, sell it. Built by [David Bautista](https://github.com/David899b) (Principal AI Engineer, EDI).
+MIT — Use it, extend it, learn from it.
 
 ---
 

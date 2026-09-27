@@ -5,7 +5,7 @@ description = "Auto-evaluation platform for LLM teams: agents generate golden se
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "MIT"}
-authors = [{name = "David Bautista", email = "david899b@gmail.com"}]
+authors = [{name = "David Bautista"}]
 keywords = ["llm", "evaluation", "golden-set", "auto-eval", "agents", "mlops", "compliance", "red-teaming"]
 classifiers = [
     "Development Status :: 4 - Beta",
