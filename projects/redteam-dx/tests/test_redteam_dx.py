@@ -35,8 +35,25 @@ def test_findings_iterable_of_dicts():
         assert "probe" in f and "exploited" in f and "evidence" in f
 
 
-if __name__ == "__main__":
-    for name, fn in list(globals().items()):
-        if name.startswith("test_") and callable(fn):
+def _run() -> int:
+    """Shared runner: report failures and exit non-zero so CI can gate on it."""
+    tests = [
+        (n, f)
+        for n, f in sorted(globals().items())
+        if n.startswith("test_") and callable(f)
+    ]
+    failures = 0
+    for name, fn in tests:
+        try:
             fn()
+        except Exception as exc:  # noqa: BLE001
+            failures += 1
+            print(f"FAIL {name}: {type(exc).__name__}: {exc}")
+        else:
             print(f"PASS {name}")
+    print(f"\n{len(tests) - failures}/{len(tests)} passed")
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_run())

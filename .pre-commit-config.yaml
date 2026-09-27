@@ -1,0 +1,22 @@
+repos:
+  - repo: local
+    hooks:
+      - id: secret-scan
+        name: scan for credentials and client-identifying data
+        entry: python scripts/scan_secrets.py --root .
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: zero-dep-suite
+        name: run the zero-dependency test suite
+        entry: python scripts/run_tests.py
+        language: system
+        pass_filenames: false
+        files: ^(src|tests|projects|scripts)/.*\.py$
+
+      - id: trailing-whitespace
+        name: trailing whitespace
+        entry: python -c "import sys,pathlib; [sys.exit(1) for p in sys.argv[1:] if p.is_file() and p.read_text(errors='ignore') != p.read_text(errors='ignore').rstrip() + chr(10)]"
+        language: system
+        types: [text]

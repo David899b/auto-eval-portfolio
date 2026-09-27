@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests (zero-dependency, py${{ matrix.python }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      # The package under src/ and every project in projects/ are stdlib-only on
+      # purpose: a reviewer should be able to clone and run the tests without
+      # installing anything. If a test starts needing a dependency, that is a
+      # design decision to make deliberately, not something CI should absorb.
+      - name: Run the full test suite
+        run: |
+          set -euo pipefail
+          python scripts/run_tests.py
+
+      - name: Verify the package imports with a bare interpreter
+        run: |
+          PYTHONPATH=src python -c "
+          import ai_eval.stats, ai_eval.harness
+          import auto_eval.cli, auto_eval.api.main
+          from auto_eval.agents.golden_set_agent import GoldenSetAgent
+          from auto_eval.agents.drift_agent import DriftAgent
+          from auto_eval.agents.red_team_agent import RedTeamAgent
+          from auto_eval.agents.gate_synthesis_agent import GateSynthesisAgent
+          from auto_eval.agents.compliance_agent import ComplianceAgent
+          print('all modules import with zero third-party dependencies')
+          "
+
+      - name: Verify no third-party imports leaked into the zero-dep core
+        run: |
+          if grep -rnE "^[[:space:]]*(import|from)[[:space:]]+(pandas|numpy|scipy|sklearn|pydantic|rich|typer|streamlit|fastapi|uvicorn|requests|httpx|pandas-stubs)\b" src tests projects; then
+            echo "::error::a zero-dependency module imports a third-party package"
+            echo "::error::the whole point of this package is that a bare interpreter can run it"
+            exit 1
+          fi
+          echo "no third-party imports in the zero-dep core"
+
+      - name: Verify pyproject declares no runtime dependencies
+        run: |
+          python - <<'EOF'
+          import sys, tomllib
+          with open("pyproject.toml", "rb") as fh:
+              cfg = tomllib.load(fh)
+          runtime = cfg["project"].get("dependencies", [])
+          if runtime:
+              print(f"::error::pyproject declares runtime deps {runtime}; the core must stay stdlib-only")
+              sys.exit(1)
+          print("pyproject declares zero runtime dependencies, as claimed")
+          EOF
+
+      - name: Verify the CLI fails loudly when a gate breaches
+        run: |
+          # A CLI that reports BLOCK and exits 0 would make CI green on a
+          # breached SLO, so the exit code itself is under test.
+          set -euo pipefail
+          export PYTHONPATH=src
+          echo '[{"name":"p95_latency_ms","values":[430,505,610],"limit":500,"direction":"max"}]' > /tmp/gates.json
+          if python -m auto_eval.cli gate --input /tmp/gates.json > /dev/null; then
+            echo "::error::the gate command exited 0 on a breached limit"
+            exit 1
+          fi
+          echo "gate exits non-zero on a breach, as required"
+
+  secret-scan:
+    name: secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # full history: the point is to catch what is already committed
+          fetch-depth: 0
+      - name: Scan working tree for credentials
+        run: python scripts/scan_secrets.py --root .
+      - name: Scan git history for credentials
+        run: python scripts/scan_secrets.py --root . --history

@@ -19,16 +19,29 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
 
-import pandas as pd
-from pydantic import BaseModel, Field, field_validator
-from rich.console import Console
-from rich.table import Table
+from ai_eval.stats import Scenario, bootstrap_ci, percentile
 
-console = Console()
 
-T = TypeVar("T", bound=BaseModel)
+@runtime_checkable
+class _Dumpable(Protocol):
+    """Anything pydantic-style that can serialise itself.
+
+    Duck-typed so the harness has no hard dependency on pydantic: any object
+    exposing ``model_dump()`` works, and plain dataclasses/dicts work too.
+    """
+
+    def model_dump(self) -> dict: ...
+
+
+T = TypeVar("T", bound=_Dumpable)
+
+
+def _dump(value: Any) -> Any:
+    """Serialise a value if it knows how, else pass it through untouched."""
+    dump = getattr(value, "model_dump", None)
+    return dump() if callable(dump) else value
 
 
 class Verdict(str, Enum):
@@ -37,14 +50,6 @@ class Verdict(str, Enum):
     PASS = "PASS"
     FAIL = "FAIL"
     GRAY = "GRAY"  # needs human review
-
-
-class Scenario(str, Enum):
-    """Reporting scenario."""
-
-    PESSIMISTIC = "pessimistic"
-    BASE = "base"
-    OPTIMISTIC = "optimistic"
 
 
 class MetricName(str, Enum):
@@ -116,7 +121,7 @@ class GoldenItem(Generic[T]):
         return {
             "id": self.id,
             "input_data": self.input_data,
-            "expected_output": self.expected_output.model_dump() if isinstance(self.expected_output, BaseModel) else self.expected_output,
+            "expected_output": _dump(self.expected_output),
             "metadata": self.metadata,
             "split": self.split,
             "weight": self.weight,
@@ -140,8 +145,8 @@ class PredictionResult(Generic[T]):
     def to_dict(self) -> dict:
         return {
             "item_id": self.item_id,
-            "predicted": self.predicted.model_dump() if isinstance(self.predicted, BaseModel) else self.predicted,
-            "expected": self.expected.model_dump() if isinstance(self.expected, BaseModel) else self.expected,
+            "predicted": _dump(self.predicted),
+            "expected": _dump(self.expected),
             "verdict": self.verdict.value,
             "scores": {k.value: v for k, v in self.scores.items()},
             "latency_ms": self.latency_ms,
@@ -182,34 +187,41 @@ class EvaluationReport:
         }
 
     def print_summary(self) -> None:
-        """Pretty print summary to console."""
-        table = Table(title=f"Evaluation Report: {self.model_id}")
-        table.add_column("Metric", style="cyan")
-        table.add_column("Pessimistic", style="red")
-        table.add_column("Base", style="yellow")
-        table.add_column("Optimistic", style="green")
-        table.add_column("Gate", style="magenta")
-
+        """Render the 3-scenario report as plain text (no rich dependency)."""
+        header = f"{'Metric':<28} {'Pessimistic':>12} {'Base':>12} {'Optimistic':>12}  Gate"
+        print(f"\nEvaluation Report: {self.model_id}")
+        print("=" * len(header))
+        print(header)
+        print("-" * len(header))
         for metric, scenarios in self.metrics.items():
-            gate_key = f"{metric.value}_gate"
-            passed = self.gate_results.get(gate_key, False)
-            table.add_row(
-                metric.value,
-                f"{scenarios[Scenario.PESSIMISTIC]:.4f}",
-                f"{scenarios[Scenario.BASE]:.4f}",
-                f"{scenarios[Scenario.OPTIMISTIC]:.4f}",
-                "✅" if passed else "❌",
+            # Gates are stored per scenario as "<metric>_<scenario>_gate".
+            # A metric only passes if *every* scenario passed — the pessimistic
+            # one decides, which is the whole point of reporting three.
+            per_scenario = {
+                scenario: self.gate_results.get(f"{metric.value}_{scenario.value}_gate")
+                for scenario in Scenario
+            }
+            graded = {s: v for s, v in per_scenario.items() if v is not None}
+            if graded:
+                ok = all(graded.values())
+                detail = " ".join(
+                    f"{s.value[0].upper()}:{'ok' if v else 'X'}" for s, v in graded.items()
+                )
+            else:
+                ok, detail = True, "ungated"
+            print(
+                f"{metric.value:<28} "
+                f"{scenarios[Scenario.PESSIMISTIC]:>12.4f} "
+                f"{scenarios[Scenario.BASE]:>12.4f} "
+                f"{scenarios[Scenario.OPTIMISTIC]:>12.4f}  "
+                f"{'PASS' if ok else 'FAIL':<4} {detail}"
             )
 
-        console.print(table)
-
-        # Compliance
-        comp_table = Table(title="Compliance")
-        comp_table.add_column("Check", style="cyan")
-        comp_table.add_column("Status", style="magenta")
-        for check, passed in self.compliance.items():
-            comp_table.add_row(check, "✅" if passed else "❌")
-        console.print(comp_table)
+        if self.compliance:
+            print("\nCompliance")
+            print("-" * 40)
+            for check, passed in self.compliance.items():
+                print(f"{check:<36} {'PASS' if passed else 'FAIL'}")
 
 
 class GoldenSetManager:
@@ -252,7 +264,7 @@ class GoldenSetManager:
         self._current = metadata
         self._items = items
 
-        console.print(f"[green]Golden set frozen:[/green] v{version} ({hash_sha256}) — {len(items)} items, κ={inter_rater_kappa:.3f}")
+        print(f"Golden set frozen: v{version} ({hash_sha256}) — {len(items)} items, κ={inter_rater_kappa:.3f}")
         return metadata
 
     def _extract_classes(self, items: list[GoldenItem]) -> list[str]:
@@ -291,8 +303,16 @@ class GoldenSetManager:
             latest.unlink()
         latest.symlink_to(f"v{metadata.version}")
 
-    def load(self, version: str | None = None) -> tuple[GoldenSetMetadata, list[GoldenItem]]:
-        """Load a golden set version (or latest)."""
+    def load(
+        self, version: str | None = None, schema: type[T] | None = None
+    ) -> tuple[GoldenSetMetadata, list[GoldenItem]]:
+        """Load a golden set version (or latest).
+
+        Pass ``schema`` to rehydrate ``expected_output`` back into its typed
+        form. Without it the items come back as plain dicts, which silently
+        breaks any judge that compares a typed prediction against a typed
+        expectation — the freeze would be decorative.
+        """
         if version is None:
             version_dir = self.storage_path / "latest"
             if not version_dir.exists():
@@ -305,13 +325,17 @@ class GoldenSetManager:
         metadata = GoldenSetMetadata.from_dict(json.loads((version_dir / "metadata.json").read_text()))
         items_data = [json.loads(line) for line in (version_dir / "items.jsonl").read_text().splitlines()]
 
-        # Reconstruct items (simplified - would need proper type reconstruction)
         items = []
         for d in items_data:
+            expected = d["expected_output"]
+            if schema is not None:
+                validator = getattr(schema, "model_validate", None)
+                if callable(validator):
+                    expected = validator(expected)
             items.append(GoldenItem(
                 id=d["id"],
                 input_data=d["input_data"],
-                expected_output=d["expected_output"],  # type: ignore
+                expected_output=expected,  # type: ignore[arg-type]
                 metadata=d.get("metadata", {}),
                 split=d.get("split", "test"),
                 weight=d.get("weight", 1.0),
@@ -407,19 +431,23 @@ class EvaluationHarness:
         judge: Judge,
         gates: dict[MetricName, dict[Scenario, float]],
         compliance_checks: list[callable] | None = None,
+        seed: int = 0,
     ):
         self.golden_set_manager = golden_set_manager
         self.model_adapter = model_adapter
         self.judge = judge
         self.gates = gates
         self.compliance_checks = compliance_checks or []
+        self.seed = seed  # makes the 3 scenarios reproducible across runs
+        # Rehydrate golden items on load so a judge can compare typed objects.
+        self._schema = getattr(type(judge), "schema", None)
 
     async def evaluate(self, split: str = "test", version: str | None = None) -> EvaluationReport:
         """Run full evaluation on specified split."""
-        metadata, items = self.golden_set_manager.load(version)
+        metadata, items = self.golden_set_manager.load(version, schema=self._schema)
         test_items = [item for item in items if item.split == split]
 
-        console.print(f"[cyan]Evaluating {len(test_items)} items from golden set v{metadata.version}[/cyan]")
+        print(f"Evaluating {len(test_items)} items from golden set v{metadata.version}")
 
         predictions = []
         for item in test_items:
@@ -487,41 +515,50 @@ class EvaluationHarness:
         f1s = [p.scores.get(MetricName.EXTRACTION_F1, 0) for p in predictions]
         metrics[MetricName.EXTRACTION_F1] = self._bootstrap_ci(f1s)
 
-        # Derivation rate (gray + fail)
-        derivation_rate = sum(1 for p in predictions if p.verdict != Verdict.PASS) / len(predictions)
-        metrics[MetricName.DERIVATION_RATE] = self._bootstrap_ci([derivation_rate])
+        # Derivation rate (gray + fail), bootstrapped per item
+        derivations = [
+            0.0 if p.verdict == Verdict.PASS else 1.0 for p in predictions
+        ]
+        metrics[MetricName.DERIVATION_RATE] = self._bootstrap_ci(derivations)
 
-        # Latency P95
+        # Latency P95 — bootstrap the per-item latencies, not the aggregate.
+        # Bootstrapping a single pre-aggregated number has no sampling
+        # distribution and previously returned NaN for the whole metric.
         latencies = [p.latency_ms for p in predictions]
-        metrics[MetricName.LATENCY_P95_MS] = self._bootstrap_ci([pd.Series(latencies).quantile(0.95)])
+        metrics[MetricName.LATENCY_P95_MS] = self._bootstrap_ci(
+            latencies, statistic="p95", direction="max"
+        )
 
-        # Cost per 1k tokens (approximate)
+        # Cost per 1k tokens — same reasoning: resample per-item costs.
         costs = [p.cost_usd for p in predictions]
-        metrics[MetricName.COST_PER_1K_TOKENS] = self._bootstrap_ci([sum(costs) / len(predictions) * 1000])
+        metrics[MetricName.COST_PER_1K_TOKENS] = self._bootstrap_ci(
+            [c * 1000 for c in costs], direction="max"
+        )
 
         return metrics
 
-    def _bootstrap_ci(self, values: list[float], n_bootstrap: int = 1000, confidence: float = 0.95) -> dict[Scenario, float]:
-        """Bootstrap confidence intervals for 3 scenarios."""
-        import numpy as np
+    def _bootstrap_ci(
+        self,
+        values: list[float],
+        n_bootstrap: int = 1000,
+        confidence: float = 0.95,
+        statistic: str = "mean",
+        direction: str = "min",
+    ) -> dict[Scenario, float]:
+        """Seeded 3-scenario bootstrap, delegated to :mod:`ai_eval.stats`.
 
-        if not values or len(values) < 2:
-            return {s: float(np.nan) for s in Scenario}
+        Seeded so two runs over the same predictions produce identical numbers
+        and a regression can actually be diffed.
 
-        arr = np.array(values)
-        boots = []
-        for _ in range(n_bootstrap):
-            sample = np.random.choice(arr, size=len(arr), replace=True)
-            boots.append(np.mean(sample))
-
-        boots = np.array(boots)
-        alpha = (1 - confidence) / 2
-        lower = np.percentile(boots, alpha * 100)
-        median = np.median(boots)
-        upper = np.percentile(boots, (1 - alpha) * 100)
-
-        return {
-            Scenario.PESSIMISTIC: float(lower),
-            Scenario.BASE: float(median),
-            Scenario.OPTIMISTIC: float(upper),
-        }
+        ``direction`` must be passed for every "higher is worse" metric. Left at
+        the default, latency and cost report their *optimistic* tail as the
+        pessimistic scenario, so a regression reads as an improvement.
+        """
+        return bootstrap_ci(
+            values,
+            n_bootstrap=n_bootstrap,
+            confidence=confidence,
+            seed=self.seed,
+            statistic=statistic,
+            direction=direction,
+        )
